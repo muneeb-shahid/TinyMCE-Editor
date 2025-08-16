@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- ✅ Local TinyMCE -->
+  <script src="tinymce/tinymce.min.js"></script>
+
+  <script>
+    // Enhanced platform detection that works with iPad emulators
+    const isIPad = /iPad|Macintosh/i.test(navigator.userAgent) &&
+      'ontouchend' in document &&
+      !window.MSStream;
+    const isIPhone = /iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const isIOS = isIPad || isIPhone;
+    const isAndroid = /Android/i.test(navigator.userAgent);
+
+    console.log('User Agent:', navigator.userAgent);
+    console.log('Detected Platform - isIPad:', isIPad, 'isIPhone:', isIPhone, 'isAndroid:', isAndroid);
+
+    // Set base paths based on platform
+    const AppConfig = {
+      baseApiUrl: 'https://api.example.com/', // Dummy base URL
+      isIPad: isIPad,
+      isIPhone: isIPhone,
+      isAndroid: isAndroid
+    };
+
+    // Set TinyMCE base path based on platform
+    let tinymceBasePath;
+    if (isIOS) {
+      // For iOS (both iPhone and iPad), use this path structure
+      const basePath = window.location.href.split('/');
+      basePath.pop(); // Remove the filename
+      tinymceBasePath = basePath.join('/') + '/tinymce';
+      console.log('iOS TinyMCE path:', tinymceBasePath);
+    } else if (isAndroid) {
+      // For Android, use the standard path
+      tinymceBasePath = 'file:///android_asset/flutter_assets/assets/editor/tinymce';
+      console.log('Android TinyMCE path:', tinymceBasePath);
+    } else {
+      // Fallback for other platforms (shouldn't happen in Flutter WebView)
+      tinymceBasePath = 'tinymce';
+      console.warn('Unsupported platform, using default TinyMCE path');
+    }
+
+    // Debug info
+    console.log('User Agent:', navigator.userAgent);
+    console.log('Current URL:', window.location.href);
+
+    let suggestionList = [];
+    let suggestionBox = null;
+    let currentEditor = null;
+    let atPosition = null;
+    let selectedIndex = -1;
+
+    function debugLog(message) {
+      console.log('[TinyMCE Debug]:', message);
+    }
+
+    // Initialize suggestion list (from Flutter)
+    function initializeSuggestions(list) {
+      suggestionList = list;
+      debugLog('Suggestions initialized: ' + JSON.stringify(suggestionList));
+    }
+
+    function updateSuggestionList(list) {
+      suggestionList = list;
+      debugLog('Suggestions updated: ' + JSON.stringify(suggestionList));
+    }
+
+    function createSuggestionBox() {
+      if (suggestionBox) return suggestionBox;
+      const box = document.createElement('div');
+      box.id = 'suggestion-box';
+      box.style.cssText = `
+        position: fixed;
+        background: white;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        max-height: 200px;
+        overflow-y: auto;
+        z-index: 10000;
+        display: none;
+        min-width: 200px;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+      `;
+      document.body.appendChild(box);
+      suggestionBox = box;
+      return box;
+    }
+
+    function showSuggestions(suggestions, x, y) {
+      if (!suggestionBox) suggestionBox = createSuggestionBox();
+      suggestionBox.innerHTML = '';
+      selectedIndex = -1;
+      if (!suggestions || suggestions.length === 0) {
+        hideSuggestions();
+        return;
+      }
+      suggestions.forEach((item, index) => {
+        const itemDiv = document.createElement('div');
+        itemDiv.textContent = item.name;
+        itemDiv.style.cssText = `
+          padding: 8px 12px;
+          cursor: pointer;
+          border-bottom: 1px solid #eee;
+          user-select: none;
+        `;
+        itemDiv.addEventListener('mouseover', function () {
+          suggestionBox.querySelectorAll('div').forEach(div => div.style.backgroundColor = '');
+          itemDiv.style.backgroundColor = '#f0f0f0';
+          selectedIndex = index;
+        });
+        itemDiv.addEventListener('click', function () {
+          insertItem(item);
+        });
+        suggestionBox.appendChild(itemDiv);
+      });
+      suggestionBox.style.left = x + 'px';
+      suggestionBox.style.top = (y + 20) + 'px';
+      suggestionBox.style.display = 'block';
+    }
+
+    function hideSuggestions() {
+      if (suggestionBox) suggestionBox.style.display = 'none';
+      selectedIndex = -1;
+    }
+
+    function highlightItem(index) {
+      if (!suggestionBox) return;
+      const items = suggestionBox.querySelectorAll('div');
+      items.forEach((item, i) => {
+        item.style.backgroundColor = i === index ? '#f0f0f0' : '';
+      });
+    }
+
+    function insertItem(item) {
+      debugLog('insertItem called with: ' + JSON.stringify(item));
+      if (!currentEditor || atPosition === null) return;
+      const selection = currentEditor.selection;
+      const range = selection.getRng();
+      const textNode = range.startContainer;
+      if (textNode.nodeType === Node.TEXT_NODE) {
+        const text = textNode.textContent;
+        const cursorPos = range.startOffset;
+        let atIndex = -1;
+        for (let i = cursorPos - 1; i >= 0; i--) {
+          if (text.charAt(i) === '@') {
+            atIndex = i;
+            break;
+          } else if (text.charAt(i) === ' ' || text.charAt(i) === '\n') break;
+        }
+        if (atIndex !== -1) {
+          const beforeAt = text.substring(0, atIndex);
+          const afterCursor = text.substring(cursorPos);
+          textNode.textContent = beforeAt;
+          const newRange = currentEditor.dom.createRng();
+          newRange.setStart(textNode, beforeAt.length);
+          newRange.setEnd(textNode, beforeAt.length);
+          selection.setRng(newRange);
+          const url = `${AppConfig.baseApiUrl}${item.id}`;
+          const hyperlink = `<a href="${url}" data-id="${item.id}" style="color:blue;text-decoration:underline;">${item.name}</a>&nbsp;${afterCursor}`;
+          currentEditor.insertContent(hyperlink);
+          console.log(hyperlink)
+        }
+      }
+      hideSuggestions();
+      atPosition = null;
+    }
+    function filterAndShowSuggestions(searchText) {
+      const filtered = suggestionList.filter(item =>
+        item.name.toLowerCase().includes(searchText.toLowerCase())
+      );
+      if (filtered.length > 0 && currentEditor) {
+        try {
+          const rect = currentEditor.selection.getRng().getClientRects()[0];
+          if (rect) {
+            const scrollTop = currentEditor.getContentAreaContainer().scrollTop || 0;
+            const scrollLeft = currentEditor.getContentAreaContainer().scrollLeft || 0;
+            const x = rect.left + window.scrollX - scrollLeft;
+            const y = rect.bottom + window.scrollY - scrollTop;
+            showSuggestions(filtered, x, y);
+          }
+        } catch (e) {
+          showSuggestions(filtered, 100, 100);
+        }
+      } else {
+        hideSuggestions();
+      }
+    }
+    // Enhanced TinyMCE Initialization with platform-specific paths
+    console.log('Initializing TinyMCE with base path:', tinymceBasePath);
+
+    // Common configuration with iPad-specific adjustments
+    const tinyConfig = {
+      selector: '#editor', 
+      fixed_toolbar_container: '#toolbar-container',
+      plugins: 'advlist link lists table code',
+      toolbar: 'undo redo | h1 h2 h3 | bold italic underline | forecolor backcolor | bullist numlist | alignleft aligncenter alignright | table | link | removeformat',
+      menubar: true,
+      block_formats: 'Paragraph=p; Heading 1=h1; Heading 2=h2; Heading 3=h3',
+      base_url: tinymceBasePath,
+      skin_url: tinymceBasePath + '/skins/ui/oxide',
+      // iPad-specific settings
+      mobile: {
+        menubar: false,
+        toolbar: [
+          'undo redo',
+          'bold italic underline',
+          'h1 h2 h3',
+          'bullist numlist',
+          'alignleft aligncenter alignright',
+          'link table'
+        ]
+      },
+      // Force mobile UI on iPad
+      mobile_disable: isIPad ? false : true,
+      // Better touch handling for iPad
+      touch: {
+        tap_context_menu: true,
+        selection_toolbar: true
+      },
+      // Content styling with improved touch targets for iPad
+      content_style: `
+        h1 { font-size: 2em; font-weight: bold; }
+        h2 { font-size: 1.5em; font-weight: bold; }
+        h3 { font-size: 1.17em; font-weight: bold; }
+        body { 
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+          font-size: ${isIPad ? '18px' : '16px'};
+          line-height: 1.5;
+          color: #333;
+          -webkit-text-size-adjust: 100%;
+          -webkit-tap-highlight-color: transparent;
+        }
+        /* Better touch targets for iPad */
+        .tox-tbtn, .tox-tbtn--select {
+          min-height: 44px;
+          min-width: 44px;
+        }
+      `,
+      content_css: tinymceBasePath + '/skins/content/default/content.min.css',
+      theme_url: tinymceBasePath + '/themes/silver/theme.min.js',
+      icons_url: tinymceBasePath + '/icons/default/icons.min.js',
+      license_key: 'gpl',
+      suffix: '.min',
+      init_instance_callback: function (editor) {
+        console.log('TinyMCE initialized successfully!');
+
+        // Notify Flutter that the editor is ready
+        if (window.FlutterEditor) {
+          window.FlutterEditor.postMessage('Editor ready');
+        }
+      },
+      setup: function (editor) {
+        currentEditor = editor;
+
+        // Handle content changes
+        editor.on('change', function () {
+          if (window.FlutterEditor) {
+            const content = editor.getContent();
+            window.FlutterEditor.postMessage(content);
+          }
+        });
+
+        // Handle key events for suggestions
+        editor.on('keydown', function (e) {
+          if (!suggestionBox || suggestionBox.style.display === 'none') return;
+
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            selectedIndex = Math.min(selectedIndex + 1, suggestionList.length - 1);
+            highlightItem(selectedIndex);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            selectedIndex = Math.max(selectedIndex - 1, 0);
+            highlightItem(selectedIndex);
+          } else if (e.key === 'Enter' && selectedIndex >= 0) {
+            e.preventDefault();
+            const selectedItem = suggestionList[selectedIndex];
+            insertItem(selectedItem);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            hideSuggestions();
+            atPosition = null;
+          }
+        });
+
+        // Handle @ mentions
+        editor.on('keypress', function (e) {
+          if (e.key === '@') {
+            const selection = editor.selection.getRng();
+            atPosition = selection.startOffset;
+            filterAndShowSuggestions('');
+          } else if (atPosition !== null && e.key !== 'Enter') {
+            setTimeout(() => {
+              const content = editor.selection.getNode().textContent || '';
+              const atIndex = content.lastIndexOf('@');
+              if (atIndex !== -1) {
+                const searchText = content.substring(atIndex + 1);
+                filterAndShowSuggestions(searchText);
+              }
+            }, 0);
+          }
+        });
+      }
+    };
+
+    // Initialize TinyMCE with error handling
+    try {
+      console.log('Starting TinyMCE initialization...');
+      tinymce.init(tinyConfig).then(function (editors) {
+        console.log('TinyMCE initialization complete', editors);
+      }).catch(function (error) {
+        console.error('TinyMCE initialization failed:', error);
+        if (window.FlutterEditor) {
+          window.FlutterEditor.postMessage('TinyMCE init error: ' + error.message);
+        }
+      });
+    } catch (error) {
+      console.error('Error initializing TinyMCE:', error);
+      if (window.FlutterEditor) {
+        window.FlutterEditor.postMessage('TinyMCE init error: ' + error.message);
+      }
+    }
+
+    // Handle clicks outside the editor and suggestion box
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.tox-editor-container') && !e.target.closest('#suggestion-box')) {
+        hideSuggestions();
+        atPosition = null;
+      }
+    });
+
+    function testSuggestions() {
+      initializeSuggestions([
+        { id: 1, name: 'United States' },
+        { id: 2, name: 'Canada' },
+        { id: 3, name: 'Mexico' }
+      ]);
+      filterAndShowSuggestions('');
+    }
+  </script>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      font-family: "Inter", sans-serif;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #editor {
+      width: 100%;
+      height: 100%;
+    }
+
+    #toolbar-container {
+      position: sticky;
+      top: 0%;
+      background: white;
+      z-index: 9999;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="toolbar-container"></div>
+
+
+  <textarea id="editor">Start typing and use @ followed by text to see the autocompleter in action!</textarea>
+</body>
+
+</html>
