@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>TinyMCE-Editor • Flutter WYSIWYG via WebView</title>
+  
 </head>
 <body>
-  <h1 align="center">TinyMCE-Editor</h1>
+<!--   title>TinyMCE-Editor • Flutter WYSIWYG via WebView</title> -->
+  <h1 align="center">TinyMCE-Editor • Flutter WYSIWYG via WebView</h1>
   <p align="center">
     <b>A Flutter application integrating the TinyMCE rich-text editor in a WebView, featuring dynamic @mention autocomplete.</b>
   </p>
