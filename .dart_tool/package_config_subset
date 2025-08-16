@@ -114,10 +114,6 @@ webview_flutter_wkwebview
 3.6
 file:///Users/utflabs/.pub-cache/hosted/pub.dev/webview_flutter_wkwebview-3.22.1/
 file:///Users/utflabs/.pub-cache/hosted/pub.dev/webview_flutter_wkwebview-3.22.1/lib/
-super_editor
-3.7
-file:///Users/utflabs/Desktop/TinyMCE%20Editor/
-file:///Users/utflabs/Desktop/TinyMCE%20Editor/lib/
 sky_engine
 3.7
 file:///Users/utflabs/Development/flutter/bin/cache/pkg/sky_engine/
@@ -130,4 +126,8 @@ flutter_test
 3.7
 file:///Users/utflabs/Development/flutter/packages/flutter_test/
 file:///Users/utflabs/Development/flutter/packages/flutter_test/lib/
+super_editor
+3.7
+file:///Users/utflabs/Documents/GitHub/TinyMCE-Editor/
+file:///Users/utflabs/Documents/GitHub/TinyMCE-Editor/lib/
 2

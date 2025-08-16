@@ -5,7 +5,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- ✅ Local TinyMCE -->
   <script src="tinymce/tinymce.min.js"></script>
 
   <script>
@@ -98,19 +97,21 @@
       if (!suggestionBox) suggestionBox = createSuggestionBox();
       suggestionBox.innerHTML = '';
       selectedIndex = -1;
+
       if (!suggestions || suggestions.length === 0) {
         hideSuggestions();
         return;
       }
+
       suggestions.forEach((item, index) => {
         const itemDiv = document.createElement('div');
         itemDiv.textContent = item.name;
         itemDiv.style.cssText = `
-          padding: 8px 12px;
-          cursor: pointer;
-          border-bottom: 1px solid #eee;
-          user-select: none;
-        `;
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+      user-select: none;
+    `;
         itemDiv.addEventListener('mouseover', function () {
           suggestionBox.querySelectorAll('div').forEach(div => div.style.backgroundColor = '');
           itemDiv.style.backgroundColor = '#f0f0f0';
@@ -121,9 +122,41 @@
         });
         suggestionBox.appendChild(itemDiv);
       });
-      suggestionBox.style.left = x + 'px';
-      suggestionBox.style.top = (y + 20) + 'px';
+
+      // --- FIXED LOGIC FOR SUGGESTION BOX POSITIONING ---
+      const approximateItemHeight = 36; // Height of each suggestion item
+      let currentBoxRenderedHeight = Math.min(suggestionBox.offsetHeight, 200); // Ensure it doesn't exceed max height
+
+      // Get the actual bounding rect of the caret/selection
+      const selection = currentEditor.selection.getRng();
+      let rects = selection.getClientRects();
+      let caretTopY; // This will be the Y coordinate of the *top* of the text line
+
+      if (rects.length > 0) {
+        caretTopY = rects[0].top; // Get top position of the caret
+      } else {
+        caretTopY = y - 20; // Fallback if rects are empty
+      }
+
+      // Calculate available space below and above the cursor
+      const spaceBelowCursor = window.innerHeight - y;
+
+      // Calculate the height of the suggestion box based on its items
+      suggestionBox.style.left = x + 'px'; // Keep x-axis position same as cursor
+
+      // Check if there's enough space below for the suggestion box
+      if (spaceBelowCursor >= currentBoxRenderedHeight + 5) {
+        // If there's enough space below, position the box just below the cursor
+        suggestionBox.style.top = (y + 5) + 'px';
+        suggestionBox.style.bottom = 'auto'; // Clear any 'bottom' setting
+      } else {
+        // If there isn't enough space, position the suggestion box above the caret
+        suggestionBox.style.top = 'auto'; // Clear the top
+        suggestionBox.style.bottom = (window.innerHeight - caretTopY - 5) + 'px'; // Adjust based on caret position
+      }
+
       suggestionBox.style.display = 'block';
+      highlightItem(selectedIndex); // Ensure selected item is visible if already showing
     }
 
     function hideSuggestions() {
@@ -137,6 +170,10 @@
       items.forEach((item, i) => {
         item.style.backgroundColor = i === index ? '#f0f0f0' : '';
       });
+      // Scroll into view if needed
+      if (items[index]) {
+        items[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
     }
 
     function insertItem(item) {
@@ -145,7 +182,7 @@
       const selection = currentEditor.selection;
       const range = selection.getRng();
       const textNode = range.startContainer;
-      if (textNode.nodeType === Node.TEXT_NODE) {
+      if (textNode && textNode.nodeType === Node.TEXT_NODE) { // Added null check for textNode
         const text = textNode.textContent;
         const cursorPos = range.startOffset;
         let atIndex = -1;
@@ -153,41 +190,91 @@
           if (text.charAt(i) === '@') {
             atIndex = i;
             break;
-          } else if (text.charAt(i) === ' ' || text.charAt(i) === '\n') break;
+          } else if (text.charAt(i) === ' ' || text.charAt(i) === '\n') {
+            // Stop searching if we hit a space or newline before '@'
+            break;
+          }
         }
         if (atIndex !== -1) {
           const beforeAt = text.substring(0, atIndex);
-          const afterCursor = text.substring(cursorPos);
-          textNode.textContent = beforeAt;
+          // Find end of the search term: either space, newline, or end of string
+          let endOfSearchTerm = cursorPos;
+          for (let i = atIndex + 1; i < text.length; i++) {
+            if (text.charAt(i) === ' ' || text.charAt(i) === '\n') {
+              endOfSearchTerm = i;
+              break;
+            }
+          }
+
+          const afterSearchTerm = text.substring(endOfSearchTerm);
+          textNode.textContent = beforeAt; // Clear the text from @ onwards
+
           const newRange = currentEditor.dom.createRng();
           newRange.setStart(textNode, beforeAt.length);
           newRange.setEnd(textNode, beforeAt.length);
           selection.setRng(newRange);
+
           const url = `${AppConfig.baseApiUrl}${item.id}`;
-          const hyperlink = `<a href="${url}" data-id="${item.id}" style="color:blue;text-decoration:underline;">${item.name}</a>&nbsp;${afterCursor}`;
+          const hyperlink = `<a href="${url}" data-id="${item.id}" style="color:blue;text-decoration:underline;">${item.name}</a>&nbsp;`; // Added &nbsp;
           currentEditor.insertContent(hyperlink);
-          console.log(hyperlink)
+
+          // Place cursor after the inserted link, before the remaining text
+          const editorBody = currentEditor.getBody();
+          const lastChild = editorBody.lastChild;
+          if (lastChild && lastChild.nodeType === Node.TEXT_NODE) {
+            const newPos = lastChild.length;
+            currentEditor.selection.setCursorLocation(lastChild, newPos);
+          } else {
+            // Fallback: set cursor at the end of content
+            currentEditor.selection.setCursorLocation(editorBody, editorBody.childNodes.length);
+          }
+
+          // Re-insert the "afterSearchTerm" text if any
+          if (afterSearchTerm.length > 0) {
+            currentEditor.insertContent(afterSearchTerm);
+          }
+
+          console.log('Inserted hyperlink:', hyperlink);
         }
       }
       hideSuggestions();
       atPosition = null;
+      currentEditor.focus(); // Ensure editor stays focused after insertion
     }
+
     function filterAndShowSuggestions(searchText) {
       const filtered = suggestionList.filter(item =>
         item.name.toLowerCase().includes(searchText.toLowerCase())
       );
       if (filtered.length > 0 && currentEditor) {
         try {
-          const rect = currentEditor.selection.getRng().getClientRects()[0];
+          // Get the current caret position relative to the editor's viewport
+          const range = currentEditor.selection.getRng();
+          const rects = range.getClientRects();
+          let rect;
+          if (rects.length > 0) {
+            rect = rects[0];
+          } else {
+            // Fallback for cases where getClientRects might be empty (e.g., empty editor)
+            const bookmark = currentEditor.selection.getBookmark();
+            currentEditor.selection.moveToBookmark(bookmark);
+            rect = currentEditor.selection.getRng().getClientRects()[0];
+          }
+
           if (rect) {
-            const scrollTop = currentEditor.getContentAreaContainer().scrollTop || 0;
-            const scrollLeft = currentEditor.getContentAreaContainer().scrollLeft || 0;
-            const x = rect.left + window.scrollX - scrollLeft;
-            const y = rect.bottom + window.scrollY - scrollTop;
+            const x = rect.left;
+            const y = rect.bottom; // Use bottom for initial positioning below
+
+            // Adjust x, y for window scroll if necessary (TinyMCE iframe complicates this slightly,
+            // but fixed positioning for suggestion box handles global coordinates)
             showSuggestions(filtered, x, y);
+          } else {
+            // If rect is still not available, show at a default position
+            showSuggestions(filtered, 100, 100);
           }
         } catch (e) {
-          showSuggestions(filtered, 100, 100);
+          console.error('Error getting caret position for suggestions:', e);
+          showSuggestions(filtered, 100, 100); // Fallback to default
         }
       } else {
         hideSuggestions();
@@ -198,25 +285,23 @@
 
     // Common configuration with iPad-specific adjustments
     const tinyConfig = {
-      selector: '#editor', 
+      selector: '#editor',
       fixed_toolbar_container: '#toolbar-container',
       plugins: 'advlist link lists table code',
+      // FIXED: Use string format instead of array for single toolbar line
       toolbar: 'undo redo | h1 h2 h3 | bold italic underline | forecolor backcolor | bullist numlist | alignleft aligncenter alignright | table | link | removeformat',
+      // FIXED: Ensure toolbar doesn't wrap
+      toolbar_mode: 'sliding', // This allows toolbar to slide if too many buttons
+      // Alternative option: toolbar_mode: 'scrolling' - creates horizontal scroll
       menubar: true,
-      block_formats: 'Paragraph=p; Heading 1=h1; Heading 2=h2; Heading 3=h3',
+      block_formats: 'Paragraph=p; Heading 1=h2; Heading 2=h3; Heading 3=h4', // Changed h1 to h2, h2 to h3, h3 to h4 as h1 is often too large
       base_url: tinymceBasePath,
       skin_url: tinymceBasePath + '/skins/ui/oxide',
       // iPad-specific settings
       mobile: {
         menubar: false,
-        toolbar: [
-          'undo redo',
-          'bold italic underline',
-          'h1 h2 h3',
-          'bullist numlist',
-          'alignleft aligncenter alignright',
-          'link table'
-        ]
+        // FIXED: Use string format for mobile toolbar too
+        toolbar: 'undo redo | bold italic underline | h1 h2 h3 | bullist numlist | alignleft aligncenter alignright | link table'
       },
       // Force mobile UI on iPad
       mobile_disable: isIPad ? false : true,
@@ -251,6 +336,7 @@
       suffix: '.min',
       init_instance_callback: function (editor) {
         console.log('TinyMCE initialized successfully!');
+        currentEditor = editor; // Ensure currentEditor is set here too
 
         // Notify Flutter that the editor is ready
         if (window.FlutterEditor) {
@@ -268,44 +354,66 @@
           }
         });
 
-        // Handle key events for suggestions
+        // Handle key events for suggestions and cursor movement
         editor.on('keydown', function (e) {
-          if (!suggestionBox || suggestionBox.style.display === 'none') return;
-
-          if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            selectedIndex = Math.min(selectedIndex + 1, suggestionList.length - 1);
-            highlightItem(selectedIndex);
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            selectedIndex = Math.max(selectedIndex - 1, 0);
-            highlightItem(selectedIndex);
-          } else if (e.key === 'Enter' && selectedIndex >= 0) {
-            e.preventDefault();
-            const selectedItem = suggestionList[selectedIndex];
-            insertItem(selectedItem);
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            hideSuggestions();
-            atPosition = null;
+          if (suggestionBox && suggestionBox.style.display !== 'none') {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              selectedIndex = Math.min(selectedIndex + 1, suggestionList.length - 1);
+              highlightItem(selectedIndex);
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              selectedIndex = Math.max(selectedIndex - 1, 0);
+              highlightItem(selectedIndex);
+            } else if (e.key === 'Enter' && selectedIndex >= 0) {
+              e.preventDefault();
+              const selectedItem = suggestionList[selectedIndex];
+              insertItem(selectedItem);
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              hideSuggestions();
+              atPosition = null;
+            }
+          } else {
+            // When suggestion box is NOT active, allow default arrow key behavior
+            // TinyMCE typically handles cursor movement with arrow keys by default.
+            // No 'e.preventDefault()' here for arrow keys ensures native behavior.
           }
         });
 
         // Handle @ mentions
-        editor.on('keypress', function (e) {
-          if (e.key === '@') {
-            const selection = editor.selection.getRng();
-            atPosition = selection.startOffset;
-            filterAndShowSuggestions('');
-          } else if (atPosition !== null && e.key !== 'Enter') {
-            setTimeout(() => {
-              const content = editor.selection.getNode().textContent || '';
-              const atIndex = content.lastIndexOf('@');
-              if (atIndex !== -1) {
-                const searchText = content.substring(atIndex + 1);
-                filterAndShowSuggestions(searchText);
+        editor.on('keyup', function (e) { // Changed to keyup to ensure DOM is updated
+          const selection = editor.selection.getRng();
+          const textNode = selection.startContainer;
+          const cursorPos = selection.startOffset;
+
+          if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+            const text = textNode.textContent;
+
+            // Look for '@' before the current cursor position
+            let currentAtIndex = -1;
+            for (let i = cursorPos - 1; i >= 0; i--) {
+              if (text.charAt(i) === '@') {
+                currentAtIndex = i;
+                break;
               }
-            }, 0);
+              // If we encounter a space or a newline, it's not part of the current mention
+              if (text.charAt(i) === ' ' || text.charAt(i) === '\n') {
+                break;
+              }
+            }
+
+            if (currentAtIndex !== -1) {
+              const searchText = text.substring(currentAtIndex + 1, cursorPos);
+              atPosition = currentAtIndex; // Store the position of '@'
+              filterAndShowSuggestions(searchText);
+            } else {
+              hideSuggestions();
+              atPosition = null;
+            }
+          } else {
+            hideSuggestions();
+            atPosition = null;
           }
         });
       }
@@ -331,7 +439,11 @@
 
     // Handle clicks outside the editor and suggestion box
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('.tox-editor-container') && !e.target.closest('#suggestion-box')) {
+      // Check if the click target is within the TinyMCE editor itself or the suggestion box
+      const isClickInsideEditor = e.target.closest('.tox-editor-container');
+      const isClickInsideSuggestionBox = e.target.closest('#suggestion-box');
+
+      if (!isClickInsideEditor && !isClickInsideSuggestionBox) {
         hideSuggestions();
         atPosition = null;
       }
@@ -339,12 +451,45 @@
 
     function testSuggestions() {
       initializeSuggestions([
-        { id: 1, name: 'United States' },
-        { id: 2, name: 'Canada' },
-        { id: 3, name: 'Mexico' }
+        { id: 'john.doe', name: 'John Doe' },
+        { id: 'jane.smith', name: 'Jane Smith' },
+        { id: 'alex.jones', name: 'Alex Jones' },
+        { id: 'emma.white', name: 'Emma White' },
+        { id: 'david.brown', name: 'David Brown' },
+        { id: 'sarah.green', name: 'Sarah Green' },
+        { id: 'peter.black', name: 'Peter Black' },
+        { id: 'lisa.red', name: 'Lisa Red' },
+        { id: 'mike.blue', name: 'Mike Blue' }
       ]);
-      filterAndShowSuggestions('');
+      // For testing, you might want to simulate typing '@'
+      // currentEditor.insertContent('@');
+      // filterAndShowSuggestions(''); // Or with some initial text
     }
+
+    // Expose functions to Flutter
+    window.initializeSuggestions = initializeSuggestions;
+    window.updateSuggestionList = updateSuggestionList;
+    window.getContent = function () {
+      return currentEditor ? currentEditor.getContent() : '';
+    };
+    window.setContent = function (content) {
+      if (currentEditor) {
+        currentEditor.setContent(content);
+      }
+    };
+    window.clearContent = function () {
+      if (currentEditor) {
+        currentEditor.setContent('');
+      }
+    };
+    window.getHtml = function () {
+      return currentEditor ? currentEditor.getContent() : '';
+    };
+    window.setHtml = function (html) {
+      if (currentEditor) {
+        currentEditor.setContent(html);
+      }
+    };
   </script>
 
   <style>
@@ -354,26 +499,54 @@
       font-family: "Inter", sans-serif;
       height: 100%;
       overflow: hidden;
+      /* Important for the fixed toolbar */
     }
 
     #editor {
       width: 100%;
-      height: 100%;
+      height: calc(100% - 60px);
+      /* Increased height adjustment for toolbar */
     }
 
     #toolbar-container {
       position: sticky;
-      top: 0%;
+      top: 0;
       background: white;
       z-index: 9999;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 5px 0;
+      /* FIXED: Remove flex properties that were causing issues */
+      /* The TinyMCE toolbar will handle its own layout */
+      overflow-x: auto; /* Allow horizontal scrolling if needed */
+      white-space: nowrap; /* Prevent wrapping of toolbar content */
+    }
+
+    /* ADDED: Additional CSS to ensure toolbar stays in one line */
+    .tox-toolbar {
+      flex-wrap: nowrap !important; /* Force no wrapping */
+      overflow-x: auto; /* Allow horizontal scroll if needed */
+    }
+
+    .tox-toolbar__group {
+      flex-shrink: 0; /* Prevent toolbar groups from shrinking */
+    }
+
+    /* ADDED: Ensure toolbar buttons don't wrap on smaller screens */
+    @media (max-width: 768px) {
+      #toolbar-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      
+      .tox-toolbar {
+        min-width: max-content;
+      }
     }
   </style>
 </head>
 
 <body>
   <div id="toolbar-container"></div>
-
-
   <textarea id="editor">Start typing and use @ followed by text to see the autocompleter in action!</textarea>
 </body>
 

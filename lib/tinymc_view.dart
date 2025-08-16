@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:developer';
 import 'package:flutter/material.dart';
+import 'package:super_editor/app_string.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 class TinyMceView extends StatefulWidget {
@@ -57,7 +58,7 @@ class _TinyMceViewState extends State<TinyMceView> {
                   print('✅ Suggestions initialized (${suggestionList.length})');
 
                   // ✅ Set initial content (optional)
-                  final escapedContent = jsonEncode("");
+                  final escapedContent = jsonEncode(HtmlString.html);
                   await _controller.runJavaScript('''
                 if (tinymce.activeEditor) {
                   tinymce.activeEditor.setContent($escapedContent);
@@ -102,7 +103,7 @@ class _TinyMceViewState extends State<TinyMceView> {
       backgroundColor: Colors.grey.shade200,
       appBar: AppBar(
         backgroundColor: Colors.blue.shade400,
-        title: const Text('TinyMCE'),
+        title: Text('TinyMCE', style: TextStyle(color: Colors.white)),
       ),
       body: Padding(
         padding: EdgeInsets.only(left: 10, right: 10, bottom: 100),

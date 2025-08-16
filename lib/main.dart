@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:super_editor/tinymcview.dart';
+import 'package:super_editor/tinymc_view.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
